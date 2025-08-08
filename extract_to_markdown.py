@@ -2,9 +2,10 @@
 
 import json
 import sys
+import re
 
 def extract_youtube_transcript(json_file, output_file):
-    """Extract YouTube transcript from JSON to markdown format with **time**: content structure"""
+    """Extract YouTube transcript from JSON to markdown format without timestamps, with proper speaker formatting"""
     
     try:
         # Read JSON file
@@ -14,29 +15,49 @@ def extract_youtube_transcript(json_file, output_file):
         # Navigate to transcript segments
         segments = data['actions'][0]['updateEngagementPanelAction']['content']['transcriptRenderer']['content']['transcriptSearchPanelRenderer']['body']['transcriptSegmentListRenderer']['initialSegments']
         
+        # Collect all text segments
+        full_text = []
+        for segment in segments:
+            seg_data = segment['transcriptSegmentRenderer']
+            
+            # Get text from snippet runs
+            if 'snippet' in seg_data and 'runs' in seg_data['snippet']:
+                for run in seg_data['snippet']['runs']:
+                    if 'text' in run:
+                        full_text.append(run['text'])
+        
+        # Join all text
+        combined_text = ' '.join(full_text)
+        
+        # Split by speaker pattern (>> NAME:)
+        speaker_pattern = r'>>\s*([A-Z][A-Z\s]+):\s*'
+        
         # Write to markdown file
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write("# YouTube Transcript\n\n")
             
-            for segment in segments:
-                seg_data = segment['transcriptSegmentRenderer']
-                
-                # Extract time and text
-                time = seg_data.get('startTimeText', {}).get('simpleText', 'Unknown')
-                
-                # Get text from snippet runs
-                text_parts = []
-                if 'snippet' in seg_data and 'runs' in seg_data['snippet']:
-                    for run in seg_data['snippet']['runs']:
-                        if 'text' in run:
-                            text_parts.append(run['text'])
-                
-                text = ' '.join(text_parts) if text_parts else 'No text'
-                
-                # Write in markdown format
-                f.write(f"**{time}**: {text}\n\n")
+            # Split text by speakers
+            parts = re.split(speaker_pattern, combined_text)
+            
+            # First part (before any speaker)
+            if parts[0].strip():
+                f.write(parts[0].strip() + "\n\n")
+            
+            # Process speaker sections
+            for i in range(1, len(parts), 2):
+                if i < len(parts):
+                    speaker_name = parts[i].strip()
+                    
+                    # Write speaker's content on same line as name
+                    if i + 1 < len(parts):
+                        content = parts[i + 1].strip()
+                        if content:
+                            # Replace multiple spaces with single space and keep as one paragraph
+                            content = re.sub(r'\s+', ' ', content)
+                            f.write(f"**{speaker_name}:** {content}\n\n")  # Speaker and content on same line
         
-        print(f"Successfully extracted {len(segments)} segments from {json_file} to {output_file}")
+        print(f"Successfully extracted transcript from {json_file} to {output_file}")
+        print(f"Processed {len(segments)} segments")
         
     except KeyError as e:
         print(f"Error: Could not find expected data structure in JSON. Missing key: {e}")
